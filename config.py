@@ -20,8 +20,8 @@ DB_NAME = os.environ.get("DATABASE_NAME", "jisoo")
 
 
 #SHORTLINK
-SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "easysky.in")
-SHORTLINK_API = os.environ.get('SHORTLINK_API', "12d1df0a0f8e8cd03eb7d99bb79c51fcab5dac84")
+SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "softurl.in")
+SHORTLINK_API = os.environ.get('SHORTLINK_API', "d9c0116fe85c5ab6563e2eba2360ce92c2d79ee6")
 
 #force sub channel id, if you want enable force sub
 FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "0"))
