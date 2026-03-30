@@ -20,8 +20,8 @@ DB_NAME = os.environ.get("DATABASE_NAME", "jisoo")
 
 
 #SHORTLINK
-SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "nowshort.com")
-SHORTLINK_API = os.environ.get('SHORTLINK_API', "c576b9cdd34ceb572a8df1f57eabf7c11efbda3a")
+SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "cpmshort.com")
+SHORTLINK_API = os.environ.get('SHORTLINK_API', "610114b56437404a5c3cca85142752490fab89f2")
 
 #force sub channel id, if you want enable force sub
 FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "0"))
