@@ -1,5 +1,5 @@
+#(©)Codexbotz
 import aiohttp
-import re
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot import Bot
@@ -61,30 +61,6 @@ async def link_generator(client: Client, message: Message):
     slink = await get_shortlink(link)
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Share Link", url=f'https://telegram.me/share/url?url={link}'),InlineKeyboardButton("Share Slink", url=f'https://telegram.me/share/url?url={slink}')]])
     await channel_message.reply_text(f"<b>Here are your links\n\nLink: </b>{link} \n\n<b>Slink : </b>{slink}", quote=True, reply_markup=reply_markup)
-
-
-@Bot.on_message(filters.private & filters.user(ADMINS) & (filters.text | filters.caption))
-async def auto_shortener(client: Client, message: Message):
-    if message.text and message.text.startswith("/"):
-        return
-    original = message.text or message.caption
-    if not original:
-        return
-    m = re.search(r'https?://\S+', original)
-    if not m:
-        return
-    link = m.group(0).rstrip(".,!?)]}>\"'")
-    link = link.replace("https://t.me/","https://telegram.me/")
-    link = link.replace("http://t.me/","https://telegram.me/")
-    link = link.replace("http://telegram.me/","https://telegram.me/")
-    if "telegram.me/+" in link:
-        link = link.replace("telegram.me/+","telegram.me/%2B")
-    slink = await get_shortlink(link)
-    await message.reply_text(
-        f"<b>Original:-</b> {original}\n\n<b>Short Link:-</b> {slink}",
-        quote=True,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Share Short Link", url=f"https://telegram.me/share/url?url={slink}")]])
-    )
 
 
 async def get_shortlink(link):
