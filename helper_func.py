@@ -1,5 +1,3 @@
-#(©)Codexbotz
-
 import base64
 import re
 import asyncio
@@ -84,7 +82,6 @@ async def get_message_id(client, message):
     else:
         return 0
 
-
 def get_readable_time(seconds: int) -> str:
     count = 0
     up_time = ""
@@ -105,6 +102,5 @@ def get_readable_time(seconds: int) -> str:
     time_list.reverse()
     up_time += ":".join(time_list)
     return up_time
-
 
 subscribed = filters.create(is_subscribed)
