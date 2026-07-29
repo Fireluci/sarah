@@ -25,3 +25,17 @@ async def full_userbase():
 async def del_user(user_id: int):
     user_data.delete_one({'_id': user_id})
     return
+
+async def update_shortener(user_id: int, site: str, api: str):
+    user_data.update_one(
+        {'_id': user_id},
+        {'$set': {'shortener': site, 'shortener_api': api}},
+        upsert=True
+    )
+    return
+
+async def get_shortener(user_id: int):
+    user = user_data.find_one({'_id': user_id})
+    if user and 'shortener' in user and 'shortener_api' in user:
+        return user['shortener'], user['shortener_api']
+    return None, None
