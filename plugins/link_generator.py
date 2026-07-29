@@ -3,8 +3,28 @@ import re
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot import Bot
-from config import ADMINS,SHORTLINK_URL,SHORTLINK_API
+from config import ADMINS, SHORTLINK_URL, SHORTLINK_API
 from helper_func import encode, get_message_id
+import database.database as db
+
+@Bot.on_message(filters.private & filters.user(ADMINS) & filters.command('shortlink'))
+async def set_shortlink(client: Client, message: Message):
+    cmd = message.text.split(" ")
+    if len(cmd) < 3:
+        await message.reply("Usage: `/shortlink site.com api_key`")
+        return
+    
+    site, api = cmd[1], cmd[2]
+    await db.update_shortener(message.from_user.id, site, api)
+    await message.reply(f"Success!\nSite: `{site}`\nAPI: `{api}`")
+
+@Bot.on_message(filters.private & filters.user(ADMINS) & filters.command('shortener'))
+async def get_user_shortener(client: Client, message: Message):
+    site, api = await db.get_shortener(message.from_user.id)
+    if not site or not api:
+        await message.reply("No custom shortener set yet. Using default config settings.")
+        return
+    await message.reply(f"Current Shortener:\nSite: `{site}`\nAPI: `{api}`")
 
 @Bot.on_message(filters.private & filters.user(ADMINS) & filters.command('batch'))
 async def batch(client: Client, message: Message):
@@ -36,7 +56,7 @@ async def batch(client: Client, message: Message):
     string = f"get-{f_msg_id * abs(client.db_channel.id)}-{s_msg_id * abs(client.db_channel.id)}"
     base64_string = await encode(string)
     link = f"https://telegram.me/{client.username}?start={base64_string}"
-    slink = await get_shortlink(link)
+    slink = await get_shortlink(link, message.from_user.id)
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Share Link", url=f'https://telegram.me/share/url?url={link}'),InlineKeyboardButton("Share Slink", url=f'https://telegram.me/share/url?url={slink}')]])
     
     await second_message.reply_text(f"<b>Here are your links\n\nLink: </b>{link} \n\n<b>Slink : </b>{slink}", quote=True, reply_markup=reply_markup)
@@ -58,7 +78,7 @@ async def link_generator(client: Client, message: Message):
 
     base64_string = await encode(f"get-{msg_id * abs(client.db_channel.id)}")
     link = f"https://telegram.me/{client.username}?start={base64_string}"
-    slink = await get_shortlink(link)
+    slink = await get_shortlink(link, message.from_user.id)
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Share Link", url=f'https://telegram.me/share/url?url={link}'),InlineKeyboardButton("Share Slink", url=f'https://telegram.me/share/url?url={slink}')]])
     await channel_message.reply_text(f"<b>Here are your links\n\nLink: </b>{link} \n\n<b>Slink : </b>{slink}", quote=True, reply_markup=reply_markup)
 
@@ -67,7 +87,7 @@ async def link_generator(client: Client, message: Message):
     filters.private &
     filters.user(ADMINS) &
     (filters.text | filters.caption) &
-    ~filters.command(["start", "users", "broadcast", "batch", "genlink", "stats"])
+    ~filters.command(["start", "users", "broadcast", "batch", "genlink", "stats", "shortlink", "shortener"])
 )
 async def auto_shortener(client: Client, message: Message):
     original = message.text or message.caption
@@ -86,7 +106,7 @@ async def auto_shortener(client: Client, message: Message):
     if "telegram.me/+" in link:
         link = link.replace("telegram.me/+", "telegram.me/%2B")
 
-    slink = await get_shortlink(link)
+    slink = await get_shortlink(link, message.from_user.id)
 
     await message.reply_text(
         f"<b>Original:-</b> {original}\n\n<b>Short Link:-</b> {slink}",
@@ -96,13 +116,15 @@ async def auto_shortener(client: Client, message: Message):
         )
     )
 
-async def get_shortlink(link):
-    API = SHORTLINK_API
-    URL = SHORTLINK_URL
-    https = link.split(":")[0] #splitting https or http from link
-    if "http" == https: #if https == "http":
+async def get_shortlink(link, user_id):
+    custom_site, custom_api = await db.get_shortener(user_id)
+    API = custom_api if custom_api else SHORTLINK_API
+    URL = custom_site if custom_site else SHORTLINK_URL
+
+    https = link.split(":")[0] 
+    if "http" == https: 
         https = "https"
-        link = link.replace("http", https) #replacing http to https
+        link = link.replace("http", https) 
     if URL == "api.shareus.in":
         url = f'https://{URL}/shortLink'
         params = {
@@ -120,7 +142,7 @@ async def get_shortlink(link):
                         print(f"error: {data['message']}")
                         return f'https://{URL}/shortLink?token={API}&format=json&link={link}'
         except Exception as e:
-            print(f"error: {data['message']}")
+            print(f"error: {e}")
             return f'https://{URL}/shortLink?token={API}&format=json&link={link}'
     else:
         url = f'https://{URL}/api'
