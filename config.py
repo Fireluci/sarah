@@ -2,14 +2,14 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "8191103559:AAHL8HM-MgOPT-AakHL_37mtLaor0XEElDk")
 APP_ID = int(os.environ.get("APP_ID", "1736204"))
 API_HASH = os.environ.get("API_HASH", "890d40e0f91a4de32dec2965444b2cbe")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1001205507869"))
 OWNER_ID = int(os.environ.get("OWNER_ID", "1058015838"))
 PORT = os.environ.get("PORT", "8080")
-DB_URI = os.environ.get("DATABASE_URL", "")
-DB_NAME = os.environ.get("DATABASE_NAME", "jisoo")
+DB_URI = os.environ.get("DATABASE_URL", "mongodb+srv://jisoo:jisoo@jisoo.5ilzjpg.mongodb.net/?appName=jisoo")
+DB_NAME = os.environ.get("DATABASE_NAME", "suzy")
 
 SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "nowshort.com")
 SHORTLINK_API = os.environ.get('SHORTLINK_API', "c576b9cdd34ceb572a8df1f57eabf7c11efbda3a")
