@@ -14,7 +14,7 @@ DB_NAME = os.environ.get("DATABASE_NAME", "filestore")
 SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "softurl.in")
 SHORTLINK_API = os.environ.get('SHORTLINK_API', "65676573da083f670527098369bf4417fae2b457")
 
-FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "0"))
+FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "-1002215944038"))
 
 TG_BOT_WORKERS = int(os.environ.get("TG_BOT_WORKERS", "4"))
 
