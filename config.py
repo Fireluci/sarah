@@ -26,7 +26,7 @@ try:
 except ValueError:
         raise Exception("Your Admins list does not contain valid integers.")
 
-FORCE_MSG = os.environ.get("FORCE_SUB_MESSAGE", "Hello {first}\n\n<b>You need to join in my Channel/Group to use me\n\nKindly Please join Channel</b>")
+FORCE_MSG = os.environ.get("FORCE_SUB_MESSAGE", "<b>Hello {first}\n\nಕೆಳಗಿರುವ ಚಾನೆಲ್ ಗೆ join ಆಗಿದ್ದರೆ ಮಾತ್ರ ಮೂವಿ ಫೈಲ್ ಬರೋದು👇👇 \n\n you need to join my channel to get movie files👇👇</b>")
 CUSTOM_CAPTION = os.environ.get("CUSTOM_CAPTION", None)
 PROTECT_CONTENT = True if os.environ.get('PROTECT_CONTENT', "False") == "True" else False
 
