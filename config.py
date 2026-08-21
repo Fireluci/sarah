@@ -15,7 +15,7 @@ SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "softurl.in")
 SHORTLINK_API = os.environ.get('SHORTLINK_API', "65676573da083f670527098369bf4417fae2b457")
 
 FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "-1002215944038"))
-
+FORCE_SUB_LINK = os.environ.get("FORCE_SUB_LINK", "https://t.me/kannadacineplex2")
 TG_BOT_WORKERS = int(os.environ.get("TG_BOT_WORKERS", "4"))
 
 START_MSG = os.environ.get("START_MESSAGE", "Hello {first}\n\nI can store private files in Specified Channel and other users can access it from special link.")
