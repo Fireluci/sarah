@@ -3,16 +3,16 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
-APP_ID = int(os.environ.get("APP_ID", "1736204"))
-API_HASH = os.environ.get("API_HASH", "890d40e0f91a4de32dec2965444b2cbe")
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1001205507869"))
+APP_ID = int(os.environ.get("APP_ID", "24314601"))
+API_HASH = os.environ.get("API_HASH", "ede341e2d490a0fad5469866dedf8a95")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1002040655722"))
 OWNER_ID = int(os.environ.get("OWNER_ID", "1058015838"))
 PORT = os.environ.get("PORT", "8080")
 DB_URI = os.environ.get("DATABASE_URL", "")
-DB_NAME = os.environ.get("DATABASE_NAME", "jisoo")
+DB_NAME = os.environ.get("DATABASE_NAME", "filestore")
 
-SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "nowshort.com")
-SHORTLINK_API = os.environ.get('SHORTLINK_API', "c576b9cdd34ceb572a8df1f57eabf7c11efbda3a")
+SHORTLINK_URL = os.environ.get('SHORTLINK_URL', "softurl.in")
+SHORTLINK_API = os.environ.get('SHORTLINK_API', "65676573da083f670527098369bf4417fae2b457")
 
 FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", "0"))
 
@@ -21,7 +21,7 @@ TG_BOT_WORKERS = int(os.environ.get("TG_BOT_WORKERS", "4"))
 START_MSG = os.environ.get("START_MESSAGE", "Hello {first}\n\nI can store private files in Specified Channel and other users can access it from special link.")
 try:
     ADMINS=[]
-    for x in (os.environ.get("ADMINS", "5051689666 1058015838 6012123382").split()):
+    for x in (os.environ.get("ADMINS", "1058015838 640617767").split()):
         ADMINS.append(int(x))
 except ValueError:
         raise Exception("Your Admins list does not contain valid integers.")
