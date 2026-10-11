@@ -3,14 +3,14 @@ import logging
 
 env = os.environ.get
 
-TG_BOT_TOKEN = env("TG_BOT_TOKEN", "")
+TG_BOT_TOKEN = env("TG_BOT_TOKEN", "8191103559:AAHL8HM-MgOPT-AakHL_37mtLaor0XEElDk")
 APP_ID = int(env("APP_ID", "1736204"))
 API_HASH = env("API_HASH", "890d40e0f91a4de32dec2965444b2cbe")
 CHANNEL_ID = int(env("CHANNEL_ID", "-1001205507869"))
 OWNER_ID = int(env("OWNER_ID", "1058015838"))
 PORT = int(env("PORT", "8080"))
-DB_URI = env("DATABASE_URL", "")
-DB_NAME = env("DATABASE_NAME", "jisoo")
+DB_URI = env("DATABASE_URL", "mongodb+srv://herostore:herostore@herostore.ywtvule.mongodb.net/?appName=herostore")
+DB_NAME = env("DATABASE_NAME", "filestore")
 SHORTLINK_URL = env("SHORTLINK_URL", "nowshort.com")
 SHORTLINK_API = env("SHORTLINK_API", "c576b9cdd34ceb572a8df1f57eabf7c11efbda3a")
 FORCE_SUB_CHANNEL = int(env("FORCE_SUB_CHANNEL", "0"))
