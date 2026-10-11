@@ -3,7 +3,7 @@ import logging
 
 env = os.environ.get
 
-TG_BOT_TOKEN = env("TG_BOT_TOKEN", "8191103559:AAHL8HM-MgOPT-AakHL_37mtLaor0XEElDk")
+TG_BOT_TOKEN = env("TG_BOT_TOKEN", "8191103559:AAG-6navNOYM0pSAZqDYzzwsLBSXS-EsRHI")
 APP_ID = int(env("APP_ID", "1736204"))
 API_HASH = env("API_HASH", "890d40e0f91a4de32dec2965444b2cbe")
 CHANNEL_ID = int(env("CHANNEL_ID", "-1001205507869"))
