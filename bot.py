@@ -1,66 +1,337 @@
-from aiohttp import web
-from plugins import web_server
-
-import pyromod.listen
-from pyrogram import Client
-from pyrogram.enums import ParseMode
-import sys
+import re, base64, asyncio, logging
 from datetime import datetime
 
-from config import API_HASH, APP_ID, LOGGER, TG_BOT_TOKEN, TG_BOT_WORKERS, FORCE_SUB_CHANNEL, CHANNEL_ID, PORT
+import aiohttp
+import pymongo
+import pyromod.listen  # noqa: F401  (adds client.ask)
+from aiohttp import web
+from pyrogram import Client, filters, idle
+from pyrogram.enums import ChatMemberStatus, ParseMode
+from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated, UserNotParticipant
+from pyrogram.types import InlineKeyboardButton as Btn, InlineKeyboardMarkup as Markup
 
-class Bot(Client):
-    def __init__(self):
-        super().__init__(
-            name="Bot",
-            api_hash=API_HASH,
-            api_id=APP_ID,
-            plugins={
-                "root": "plugins"
-            },
-            workers=TG_BOT_WORKERS,
-            bot_token=TG_BOT_TOKEN
-        )
-        self.LOGGER = LOGGER
+from config import (TG_BOT_TOKEN, APP_ID, API_HASH, CHANNEL_ID, PORT, DB_URI, DB_NAME, SHORTLINK_URL,
+                    SHORTLINK_API, FORCE_SUB_CHANNEL, WORKERS, CUSTOM_CAPTION, PROTECT_CONTENT,
+                    START_MSG, FORCE_MSG, ADMINS)
 
-    async def start(self):
-        await super().start()
-        usr_bot_me = await self.get_me()
-        self.uptime = datetime.now()
+log = logging.getLogger("bot")
 
-        if FORCE_SUB_CHANNEL:
-            try:
-                link = (await self.get_chat(FORCE_SUB_CHANNEL)).invite_link
-                if not link:
-                    await self.export_chat_invite_link(FORCE_SUB_CHANNEL)
-                    link = (await self.get_chat(FORCE_SUB_CHANNEL)).invite_link
-                self.invitelink = link
-            except Exception as a:
-                self.LOGGER(__name__).warning(a)
-                self.LOGGER(__name__).warning("Bot can't Export Invite link from Force Sub Channel!")
-                self.LOGGER(__name__).warning(f"Please Double check the FORCE_SUB_CHANNEL value and Make sure Bot is Admin in channel with Invite Users via Link Permission, Current Force Sub Channel Value: {FORCE_SUB_CHANNEL}")
-                self.LOGGER(__name__).info("\nBot Stopped")
-                sys.exit()
+# ---------------------------------------------------------------- database
+db = pymongo.MongoClient(DB_URI)[DB_NAME]
+users, settings = db["users"], db["config"]
+
+# ---------------------------------------------------------------- client + state
+app = Client("Bot", api_id=APP_ID, api_hash=API_HASH, bot_token=TG_BOT_TOKEN, workers=WORKERS)
+state = {"started": datetime.now(), "username": "", "db_channel": None, "invite": ""}
+
+
+# ---------------------------------------------------------------- helpers
+def encode(s: str) -> str:
+    return base64.urlsafe_b64encode(s.encode()).decode().strip("=")
+
+
+def decode(s: str) -> str:
+    s = s.strip("=")
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4)).decode()
+
+
+async def _subscribed(_, client, msg):
+    if not FORCE_SUB_CHANNEL or msg.from_user.id in ADMINS:
+        return True
+    try:
+        m = await client.get_chat_member(FORCE_SUB_CHANNEL, msg.from_user.id)
+    except UserNotParticipant:
+        return False
+    return m.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER)
+
+
+subscribed = filters.create(_subscribed)
+admin_pm = filters.private & filters.user(ADMINS)
+
+
+def fmt(text, u):
+    return text.format(first=u.first_name, last=u.last_name, id=u.id, mention=u.mention,
+                       username="@" + u.username if u.username else None)
+
+
+async def get_messages(ids):
+    out = []
+    for i in range(0, len(ids), 200):
+        chunk = ids[i:i + 200]
         try:
-            db_channel = await self.get_chat(CHANNEL_ID)
-            self.db_channel = db_channel
-            test = await self.send_message(chat_id = db_channel.id, text = "Test Message")
-            await test.delete()
+            out += await app.get_messages(state["db_channel"].id, chunk)
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            out += await app.get_messages(state["db_channel"].id, chunk)
+    return out
+
+
+def get_message_id(msg) -> int:
+    """Message id in the DB channel from a forward or a t.me link (0 if not from it)."""
+    ch = state["db_channel"]
+    if msg.forward_from_chat:
+        return msg.forward_from_message_id if msg.forward_from_chat.id == ch.id else 0
+    if msg.text and not msg.forward_sender_name:
+        m = re.match(r"https://t.me/(?:c/)?(.*)/(\d+)", msg.text)
+        if m:
+            chan, mid = m.group(1), int(m.group(2))
+            if (chan.isdigit() and f"-100{chan}" == str(ch.id)) or chan == ch.username:
+                return mid
+    return 0
+
+
+async def ask_msg_id(uid, prompt) -> int:
+    while True:
+        try:
+            m = await app.ask(uid, prompt, filters=filters.forwarded | filters.text, timeout=60)
+        except Exception:
+            return 0
+        mid = get_message_id(m)
+        if mid:
+            return mid
+        await m.reply("❌ Error\n\nThis post/link is not from my DB Channel", quote=True)
+
+
+async def get_shortlink(link: str) -> str:
+    row = settings.find_one({"_id": "shortener_config"}) or {}
+    site = row.get("shortener") or SHORTLINK_URL
+    api = row.get("shortener_api") or SHORTLINK_API
+    link = link.replace("http://", "https://")
+    shareus = site == "api.shareus.in"
+    url = f"https://{site}/shortLink" if shareus else f"https://{site}/api"
+    params = {"token": api, "format": "json", "link": link} if shareus else {"api": api, "url": link}
+    fallback = f"{url}?" + "&".join(f"{k}={v}" for k, v in params.items())
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, params=params, raise_for_status=True, ssl=False) as r:
+                data = await r.json(content_type=None)
+        if data.get("status") == "success":
+            return data["shortlink"] if shareus else data["shortenedUrl"]
+        log.warning("shortener error: %s", data.get("message"))
+    except Exception as e:
+        log.warning("shortener error: %s", e)
+    return fallback
+
+
+async def reply_links(msg, link):
+    slink = await get_shortlink(link)
+    share = "https://telegram.me/share/url?url="
+    await msg.reply_text(
+        f"<b>Here are your links\n\nLink: </b>{link} \n\n<b>Slink : </b>{slink}", quote=True,
+        reply_markup=Markup([[Btn("Share Link", url=share + link), Btn("Share Slink", url=share + slink)]]))
+
+
+# ---------------------------------------------------------------- user handlers
+@app.on_message(filters.command("start") & filters.private & subscribed)
+async def start(client, message):
+    uid = message.from_user.id
+    if not users.find_one({"_id": uid}):
+        users.insert_one({"_id": uid})
+
+    if len(message.command) > 1:
+        try:
+            parts = decode(message.command[1]).split("-")
+            n = abs(state["db_channel"].id)
+            if len(parts) == 3:
+                a, b = int(parts[1]) // n, int(parts[2]) // n
+                ids = list(range(a, b + 1)) if a <= b else list(range(a, b - 1, -1))
+            elif len(parts) == 2:
+                ids = [int(parts[1]) // n]
+            else:
+                return
+        except Exception:
+            return
+
+        wait = await message.reply("Please wait...")
+        try:
+            msgs = await get_messages(ids)
+        except Exception:
+            return await message.reply_text("Something went wrong..!")
+        await wait.delete()
+
+        for m in msgs:
+            caption = m.caption.html if m.caption else ""
+            if CUSTOM_CAPTION and m.document:
+                caption = CUSTOM_CAPTION.format(previouscaption=caption, filename=m.document.file_name)
+            kw = dict(chat_id=uid, caption=caption, parse_mode=ParseMode.HTML,
+                      reply_markup=None, protect_content=PROTECT_CONTENT)
+            try:
+                await m.copy(**kw)
+                await asyncio.sleep(0.5)
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                await m.copy(**kw)
+            except Exception:
+                pass
+        return
+
+    await message.reply_text(
+        fmt(START_MSG, message.from_user), quote=True, disable_web_page_preview=True,
+        reply_markup=Markup([[Btn("😊 About Me", callback_data="about"), Btn("🔒 Close", callback_data="close")]]))
+
+
+@app.on_message(filters.command("start") & filters.private)
+async def not_joined(client, message):
+    buttons = [[Btn("Join Channel", url=state["invite"])]]
+    if len(message.command) > 1:
+        buttons.append([Btn("Try Again", url=f"https://t.me/{state['username']}?start={message.command[1]}")])
+    await message.reply(fmt(FORCE_MSG, message.from_user), reply_markup=Markup(buttons),
+                        quote=True, disable_web_page_preview=True)
+
+
+@app.on_callback_query()
+async def callbacks(client, query):
+    if query.data == "about":
+        await query.message.edit_text("<b>○ Creator : @MrKrazyBot</b>", disable_web_page_preview=True,
+                                      reply_markup=Markup([[Btn("🔒 Close", callback_data="close")]]))
+    elif query.data == "close":
+        await query.message.delete()
+        try:
+            await query.message.reply_to_message.delete()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------- admin handlers
+@app.on_message(admin_pm & filters.command("users"))
+async def users_count(client, message):
+    await message.reply(f"{users.count_documents({})} users are using this bot")
+
+
+@app.on_message(admin_pm & filters.command("stats"))
+async def stats(client, message):
+    s = int((datetime.now() - state["started"]).total_seconds())
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    await message.reply(f"<b>BOT UPTIME</b>\n{d}d {h}h {m}m {s}s")
+
+
+@app.on_message(admin_pm & filters.command("broadcast"))
+async def broadcast(client, message):
+    src = message.reply_to_message
+    if not src:
+        msg = await message.reply("<code>Use this command as a reply to any telegram message.</code>")
+        await asyncio.sleep(8)
+        return await msg.delete()
+
+    status = await message.reply("<i>Broadcasting Message.. This will Take Some Time</i>")
+    total = ok = blocked = deleted = failed = 0
+    for doc in users.find():
+        uid = doc["_id"]
+        try:
+            try:
+                await src.copy(uid)
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                await src.copy(uid)
+            ok += 1
+        except UserIsBlocked:
+            users.delete_one({"_id": uid})
+            blocked += 1
+        except InputUserDeactivated:
+            users.delete_one({"_id": uid})
+            deleted += 1
+        except Exception:
+            failed += 1
+        total += 1
+
+    await status.edit(f"<b><u>Broadcast Completed</u>\n\nTotal Users: <code>{total}</code>\n"
+                      f"Successful: <code>{ok}</code>\nBlocked Users: <code>{blocked}</code>\n"
+                      f"Deleted Accounts: <code>{deleted}</code>\nUnsuccessful: <code>{failed}</code></b>")
+
+
+@app.on_message(admin_pm & filters.command("genlink"))
+async def genlink(client, message):
+    mid = await ask_msg_id(message.from_user.id, "Forward Message from the DB Channel (with Quotes)..\nor Send the DB Channel Post link")
+    if mid:
+        n = abs(state["db_channel"].id)
+        await reply_links(message, f"https://telegram.me/{state['username']}?start={encode(f'get-{mid * n}')}")
+
+
+@app.on_message(admin_pm & filters.command("batch"))
+async def batch(client, message):
+    uid = message.from_user.id
+    first = await ask_msg_id(uid, "Forward the First Message from DB Channel (with Quotes)..\nor Send the DB Channel Post Link")
+    last = first and await ask_msg_id(uid, "Forward the Last Message from DB Channel (with Quotes)..\nor Send the DB Channel Post link")
+    if first and last:
+        n = abs(state["db_channel"].id)
+        await reply_links(message, f"https://telegram.me/{state['username']}?start={encode(f'get-{first * n}-{last * n}')}")
+
+
+@app.on_message(admin_pm & filters.command("shortlink"))
+async def set_shortlink(client, message):
+    if len(message.command) < 3:
+        return await message.reply("Usage: `/shortlink site.com api_key`")
+    site, api = message.command[1:3]
+    settings.update_one({"_id": "shortener_config"}, {"$set": {"shortener": site, "shortener_api": api}}, upsert=True)
+    await message.reply(f"Global Shortener Updated!\nSite: `{site}`\nAPI: `{api}`")
+
+
+@app.on_message(admin_pm & filters.command("shortener"))
+async def show_shortener(client, message):
+    row = settings.find_one({"_id": "shortener_config"}) or {}
+    await message.reply(f"Current Global Shortener:\nSite: `{row.get('shortener') or SHORTLINK_URL}`\n"
+                        f"API: `{row.get('shortener_api') or SHORTLINK_API}`")
+
+
+COMMANDS = ["start", "users", "broadcast", "batch", "genlink", "stats", "shortlink", "shortener"]
+
+
+@app.on_message(admin_pm & (filters.text | filters.caption) & ~filters.command(COMMANDS))
+async def auto_shortener(client, message):
+    text = message.text or message.caption
+    m = re.search(r"https?://\S+", text)
+    if not m:
+        return
+    link = m.group(0).rstrip(".,!?)]}>\"'")
+    link = re.sub(r"^https?://(t\.me|telegram\.me)/", "https://telegram.me/", link)
+    link = link.replace("telegram.me/+", "telegram.me/%2B")
+    slink = await get_shortlink(link)
+    await message.reply_text(
+        f"<b>Original:-</b> {text}\n\n<b>Short Link:-</b> {slink}", quote=True,
+        reply_markup=Markup([[Btn("Share Short Link", url=f"https://telegram.me/share/url?url={slink}")]]))
+
+
+# ---------------------------------------------------------------- run
+async def main():
+    await app.start()
+    app.set_parse_mode(ParseMode.HTML)
+    state["username"] = (await app.get_me()).username
+
+    if FORCE_SUB_CHANNEL:
+        try:
+            chat = await app.get_chat(FORCE_SUB_CHANNEL)
+            if not chat.invite_link:
+                await app.export_chat_invite_link(FORCE_SUB_CHANNEL)
+                chat = await app.get_chat(FORCE_SUB_CHANNEL)
+            state["invite"] = chat.invite_link
         except Exception as e:
-            self.LOGGER(__name__).warning(e)
-            self.LOGGER(__name__).warning(f"Make Sure bot is Admin in DB Channel, and Double check the CHANNEL_ID Value, Current Value {CHANNEL_ID}")
-            self.LOGGER(__name__).info("\nBot Stopped")
-            sys.exit()
+            log.error("Can't get invite link for FORCE_SUB_CHANNEL=%s (is the bot admin there?): %s", FORCE_SUB_CHANNEL, e)
+            return
+    try:
+        state["db_channel"] = await app.get_chat(CHANNEL_ID)
+        await (await app.send_message(CHANNEL_ID, "Test Message")).delete()
+    except Exception as e:
+        log.error("Make sure the bot is admin in the DB channel and CHANNEL_ID=%s is right: %s", CHANNEL_ID, e)
+        return
 
-        self.set_parse_mode(ParseMode.HTML)
-        self.LOGGER(__name__).info("Bot Started Successfully.")
-        self.username = usr_bot_me.username
-        #web-response
-        app = web.AppRunner(await web_server())
-        await app.setup()
-        bind_address = "0.0.0.0"
-        await web.TCPSite(app, bind_address, PORT).start()
+    routes = web.RouteTableDef()
 
-    async def stop(self, *args):
-        await super().stop()
-        self.LOGGER(__name__).info("Bot stopped.")
+    @routes.get("/", allow_head=True)
+    async def health(_):
+        return web.json_response("OK")
+
+    web_app = web.Application()
+    web_app.add_routes(routes)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    await web.TCPSite(runner, "0.0.0.0", PORT).start()
+
+    log.info("Bot started successfully.")
+    await idle()
+    await app.stop()
+
+
+if __name__ == "__main__":
+    app.run(main())
