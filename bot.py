@@ -12,7 +12,7 @@ from pyrogram.types import InlineKeyboardButton as Btn, InlineKeyboardMarkup as 
 
 from config import (TG_BOT_TOKEN, APP_ID, API_HASH, CHANNEL_ID, PORT, DB_URI, DB_NAME, SHORTLINK_URL,
                     SHORTLINK_API, FORCE_SUB_CHANNEL, WORKERS, CUSTOM_CAPTION, PROTECT_CONTENT,
-                    START_MSG, FORCE_MSG, ADMINS)
+                    START_MSG, FORCE_MSG, ADMINS, LINK_BASE)
 
 log = logging.getLogger("bot")
 
@@ -113,9 +113,23 @@ async def get_shortlink(link: str) -> str:
     return fallback
 
 
+async def make_link(payload: str) -> str:
+    """Permanent link (survives a banned bot) if a link base is set, else a direct bot link."""
+    row = settings.find_one({"_id": "link_base"})
+    base = row["value"] if row else LINK_BASE
+    if base:
+        return f"{base}{'&' if '?' in base else '?'}s={payload}"
+    return f"https://telegram.me/{state['username']}?start={payload}"
+
+
 async def reply_links(msg, link):
-    slink = await get_shortlink(link)
     share = "https://telegram.me/share/url?url="
+    if re.search(r"/r/?\?s=", link):
+        # Link-Worker link: it makes the short link itself when tapped, so don't shorten it here too.
+        return await msg.reply_text(
+            f"<b>Here is your link (share this one)</b>\n\n{link}", quote=True,
+            reply_markup=Markup([[Btn("Share Link", url=share + link)]]))
+    slink = await get_shortlink(link)
     await msg.reply_text(
         f"<b>Here are your links\n\nLink: </b>{link} \n\n<b>Slink : </b>{slink}", quote=True,
         reply_markup=Markup([[Btn("Share Link", url=share + link), Btn("Share Slink", url=share + slink)]]))
@@ -246,7 +260,7 @@ async def genlink(client, message):
     mid = await ask_msg_id(message.from_user.id, "Forward Message from the DB Channel (with Quotes)..\nor Send the DB Channel Post link")
     if mid:
         n = abs(state["db_channel"].id)
-        await reply_links(message, f"https://telegram.me/{state['username']}?start={encode(f'get-{mid * n}')}")
+        await reply_links(message, await make_link(encode(f"get-{mid * n}")))
 
 
 @app.on_message(admin_pm & filters.command("batch"))
@@ -256,7 +270,7 @@ async def batch(client, message):
     last = first and await ask_msg_id(uid, "Forward the Last Message from DB Channel (with Quotes)..\nor Send the DB Channel Post link")
     if first and last:
         n = abs(state["db_channel"].id)
-        await reply_links(message, f"https://telegram.me/{state['username']}?start={encode(f'get-{first * n}-{last * n}')}")
+        await reply_links(message, await make_link(encode(f"get-{first * n}-{last * n}")))
 
 
 @app.on_message(admin_pm & filters.command("shortlink"))
@@ -275,7 +289,28 @@ async def show_shortener(client, message):
                         f"API: `{row.get('shortener_api') or SHORTLINK_API}`")
 
 
-COMMANDS = ["start", "users", "broadcast", "batch", "genlink", "stats", "shortlink", "shortener"]
+@app.on_message(admin_pm & filters.command("linkbase"))
+async def link_base_cmd(client, message):
+    arg = message.command[1] if len(message.command) > 1 else None
+    row = settings.find_one({"_id": "link_base"})
+    current = row["value"] if row else LINK_BASE
+    if arg is None:
+        if current:
+            return await message.reply(f"Permanent links are <b>ON</b>.\nBase: <code>{current}</code>\n\n"
+                                       "Change: /linkbase https://you.github.io/f/\nTurn off: /linkbase off")
+        return await message.reply("Permanent links are <b>OFF</b> (links open this bot directly).\n"
+                                   "Turn on: /linkbase https://you.github.io/f/")
+    if arg.lower() == "off":
+        settings.update_one({"_id": "link_base"}, {"$set": {"value": ""}}, upsert=True)
+        return await message.reply("Permanent links are now <b>OFF</b>.")
+    if not re.fullmatch(r"https://[^\s<>\"']+", arg):
+        return await message.reply("Send a full address starting with https://")
+    settings.update_one({"_id": "link_base"}, {"$set": {"value": arg}}, upsert=True)
+    sep = "&" if "?" in arg else "?"
+    await message.reply(f"Saved. New links will look like:\n<code>{arg}{sep}s=CODE</code>")
+
+
+COMMANDS = ["start", "users", "broadcast", "batch", "genlink", "stats", "shortlink", "shortener", "linkbase"]
 
 
 @app.on_message(admin_pm & (filters.text | filters.caption) & ~filters.command(COMMANDS))
